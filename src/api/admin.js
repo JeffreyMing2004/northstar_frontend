@@ -83,6 +83,15 @@ export function getAdminBetaVerifyLogs(params) {
   return api.get('/admin/beta/verify-logs', { params })
 }
 
+/**
+ * 按账号状态重建白名单（对账）：
+ * 为「已通过」的玩家补齐/更新条目，并清理已失去资格却仍在放行的系统条目。
+ * 手工录入的条目不会被删除或修改。
+ */
+export function syncAdminBetaWhitelistAccounts() {
+  return api.post('/admin/beta/whitelist/sync-accounts')
+}
+
 export function getAdminRooms() {
   return api.get('/admin/rooms')
 }

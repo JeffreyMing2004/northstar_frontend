@@ -71,9 +71,11 @@
             <label class="form-label">Minecraft ID（离线服，选填）</label>
             <div class="input-wrapper">
               <NsIcon name="gamepad" class="input-icon" />
-              <input v-model="form.mcId" type="text" class="ns-input auth-input" placeholder="请输入您的ID（离线服）" />
+              <input v-model.trim="form.mcId" type="text" class="ns-input auth-input" maxlength="16" placeholder="请输入您的ID（离线服）" />
             </div>
-            <span class="field-hint">绑定离线服 MC ID 可解锁专属战绩追踪</span>
+            <span v-if="form.mcId && !validMcId" class="field-hint error"><NsIcon name="close-circle" /> 3-16 位，仅限字母、数字和下划线</span>
+            <span v-else-if="form.mcId" class="field-hint warning"><NsIcon name="warning" /> 注册后不可更改，请确认与实际登录的 ID 完全一致</span>
+            <span v-else class="field-hint">绑定离线服 MC ID 可解锁专属战绩追踪；与 QQ 同为内测资格凭据，注册后不可更改</span>
           </div>
 
           <button type="submit" class="ns-btn ns-btn-filled auth-submit" :disabled="!canNext1">
@@ -198,7 +200,9 @@ const validUsername = computed(() => /^[a-zA-Z0-9_]{3,16}$/.test(form.username))
 const validEmail = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
 // QQ 号是内测资格校验的键之一，与客户端 Mod 填的必须是同一个，因此注册时就要求填
 const validQq = computed(() => /^[1-9]\d{4,10}$/.test(form.qq))
-const canNext1 = computed(() => validUsername.value && validEmail.value && validQq.value && form.emailCode.length === 6)
+// Minecraft ID 同样只在注册时绑定一次，格式与后端 McIdFormat 保持一致（留空表示暂不绑定）
+const validMcId = computed(() => !form.mcId || /^[a-zA-Z0-9_]{3,16}$/.test(form.mcId))
+const canNext1 = computed(() => validUsername.value && validEmail.value && validQq.value && validMcId.value && form.emailCode.length === 6)
 const pwdStrength = computed(() => {
   let s = 0; if (form.password.length >= 8) s++;
   if (/[a-z]/.test(form.password) && /[A-Z]/.test(form.password)) s++;
@@ -278,6 +282,7 @@ async function handleRegister() {
 .field-hint { font-size: 12px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
 .field-hint .ns-icon { font-size: 12px; }
 .field-hint.error { color: var(--accent-red); }
+.field-hint.warning { color: #ffc107; }
 .field-hint.success { color: var(--accent-green); }
 .pwd-strength { display: flex; align-items: center; gap: 10px; }
 .strength-bars { display: flex; gap: 4px; flex: 1; }

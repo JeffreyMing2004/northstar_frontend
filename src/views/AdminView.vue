@@ -403,6 +403,15 @@
                 <option value="0">禁用</option>
               </select>
               <div class="toolbar-actions">
+                <button
+                  class="command-button secondary"
+                  type="button"
+                  :disabled="actionLoading"
+                  title="按「已通过」的账号状态重建白名单，并清理已失去资格却仍在放行的系统条目；手工录入的条目不受影响"
+                  @click="syncApprovedWhitelist"
+                >
+                  <NsIcon name="refresh" /> 按账号重建
+                </button>
                 <button class="command-button secondary" type="button" :disabled="actionLoading" @click="exportBetaWhitelist">
                   <NsIcon name="download" /> 导出
                 </button>
@@ -672,8 +681,8 @@
         </div>
         <form class="edit-form" @submit.prevent="saveUser">
           <label>
-            <span>Minecraft ID</span>
-            <input v-model="editForm.mcId" class="field-input" maxlength="16" placeholder="未绑定" />
+            <span>Minecraft ID（管理员可强制改写）</span>
+            <input v-model="editForm.mcId" class="field-input" maxlength="16" placeholder="玩家注册后不可自改；清空表示解绑" />
           </label>
           <label>
             <span>QQ 号（管理员可强制改写）</span>
@@ -695,6 +704,9 @@
               <option value="approved">已通过</option>
               <option value="denied">已拒绝</option>
             </select>
+            <span class="field-hint">
+              <NsIcon name="warning" /> 改为「已通过」会自动写入客户端白名单；取消「已通过」会同时移除该玩家的白名单授权（手工录入的条目不受影响）
+            </span>
           </label>
           <div class="modal-actions">
             <button class="command-button secondary" type="button" @click="closeEditUser">取消</button>
@@ -960,6 +972,7 @@ import {
   grantAdminUser,
   importAdminBetaWhitelistCsv,
   revokeAdminUser,
+  syncAdminBetaWhitelistAccounts,
   updateAdminBetaPlan,
   updateAdminBetaPlanStatus,
   updateAdminBetaWhitelist,
@@ -1455,6 +1468,25 @@ async function removeBetaWhitelist(entry) {
     await loadBetaWhitelist()
   } catch (e) {
     handleBetaWhitelistError(e)
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function syncApprovedWhitelist() {
+  if (!window.confirm('按账号状态重建白名单？\n\n会为「已通过」的玩家补齐/更新白名单条目，并清理已失去资格却仍在放行的系统条目。\n手工录入的条目不会被删除或修改。')) return
+  actionLoading.value = true
+  error.value = ''
+  try {
+    const res = await syncAdminBetaWhitelistAccounts()
+    const data = res.data || {}
+    showNotice(res.message || '白名单对账完成')
+    if (data.problems?.length) {
+      error.value = `以下账号未能同步：${data.problems.join('；')}`
+    }
+    await Promise.all([loadBetaWhitelist(), loadUsers()])
+  } catch (e) {
+    handleBetaWhitelistError(e, '白名单对账失败')
   } finally {
     actionLoading.value = false
   }
@@ -2620,7 +2652,7 @@ onMounted(refreshAll)
   .toolbar-actions {
     width: 100%;
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     margin-left: 0;
   }
 
@@ -2650,5 +2682,19 @@ onMounted(refreshAll)
     grid-column: 2;
     text-align: left;
   }
+}
+
+.field-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: #ffc107;
+}
+
+.field-hint .ns-icon {
+  margin-top: 2px;
+  font-size: 13px;
 }
 </style>
