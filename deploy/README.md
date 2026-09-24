@@ -91,6 +91,16 @@ curl -s "https://northstar.mingpixel.net/api/beta/verify?qq=123456789&name=Steve
 #      /api/beta/verify 的 permitAll 放行。此时**不要**让客户端 Mod 切到生产：
 #      403 会被 Mod 判为「服务不可用」，玩家会永久卡在验证界面（不消耗重试次数，
 #      且 ESC 被禁用，只能退出游戏）。先重新部署后端再切。
+#
+#   ✅ 2026-09-24 复验记录（v3.7 切生产前）：
+#      GET /api/beta/verify?qq=10001&name=ProdProbe
+#        → 200, 1.83s, {"code":1001,"data":null,"msg":"该 QQ 未获得内测资格","success":false}
+#        响应头含 X-XSS-Protection:0 / Cache-Control: no-cache,no-store,must-revalidate
+#        → Spring Security 已放行，非旧构建、非反代拦截（cf-cache-status: DYNAMIC 已回源）
+#      GET /api/beta/plans            → 200（公开）
+#      GET /api/beta/my-application   → 403（匿名，鉴权边界正确）
+#      POST /api/beta/apply           → 403（匿名，鉴权边界正确）
+#     结论：可以切换客户端 Mod 到生产模式。
 
 # ⑤ index.html 不可缓存
 curl -sI https://northstar.mingpixel.net/ | grep -i cache-control
@@ -104,13 +114,16 @@ curl -s -H "X-Forwarded-For: 1.2.3.4" \
 
 ## 5. 客户端 Mod 侧配置
 
-反代配好后，玩家端 `config/northstarclientverification-common.toml` 里的地址要跟着改：
+自 **v3.7**（2026-09-24）起，Mod 的代码默认值已是生产地址
+（`Config.DEFAULT_VERIFY_URL = VERIFY_URL_PROD`），新玩家无需改配置即可直连生产。
+玩家端 `config/northstarclientverification-common.toml` 里的地址如需手工覆盖：
 
 ```toml
 verifyUrl = "https://northstar.mingpixel.net/api/beta/verify"
 ```
 
 `verifyUrl` 留空时 Mod 会**跳过校验直接放行**（`SKIPPED`），所以发版时务必填上。
+本地联调时才把该值改回 `http://127.0.0.1:8080/api/beta/verify`（需先起本机后端）。
 
 ## 6. 常见问题
 
