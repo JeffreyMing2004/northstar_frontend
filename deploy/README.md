@@ -81,9 +81,16 @@ curl -s http://127.0.0.1:8080/api/beta/plans | head -c 200
 curl -s https://northstar.mingpixel.net/api/beta/plans | head -c 200
 #   期望返回 JSON（ApiResponse 结构）
 
-# ④ 校验接口
+# ④ 校验接口（客户端 Mod 唯一依赖的接口，最不能出错）
 curl -s "https://northstar.mingpixel.net/api/beta/verify?qq=123456789&name=Steve"
-#   期望 {"success":false,"code":1001,...}；白名单里有该 QQ 且游戏ID 匹配时应为 true
+#   期望返回 JSON：{"success":false,"code":1001,...}
+#   （success:false 也算通过 —— 说明匿名放行已生效、判定在跑；
+#     白名单里有该 QQ 且游戏ID 匹配时才会是 true）
+#
+#   ⚠️ 若返回 403 且响应体为空 → 生产后端是**旧构建**，SecurityConfig 里还没有
+#      /api/beta/verify 的 permitAll 放行。此时**不要**让客户端 Mod 切到生产：
+#      403 会被 Mod 判为「服务不可用」，玩家会永久卡在验证界面（不消耗重试次数，
+#      且 ESC 被禁用，只能退出游戏）。先重新部署后端再切。
 
 # ⑤ index.html 不可缓存
 curl -sI https://northstar.mingpixel.net/ | grep -i cache-control
@@ -111,7 +118,9 @@ verifyUrl = "https://northstar.mingpixel.net/api/beta/verify"
 |---|---|
 | 页面 200 但接口全 404 | `location ^~ /api/` 没配，或 `proxy_pass` 后面多写了路径 |
 | 接口返回 502 | 后端没起，或 `upstream` 地址/端口不对；先 `curl 127.0.0.1:8080/api/beta/plans` |
-| 接口返回 403 | 打的是 `/api/admin/**`，需要管理员 JWT；确认 token 有效 |
+| 接口返回 403 且响应体为空 | 先确认这个接口**是否本来就该匿名放行**。Spring Security 在「未命中 `permitAll`」时返回 403 空体，响应头带 `X-XSS-Protection: 0`、`Vary: Origin,...`。是 `/api/admin/**` → 需要管理员 JWT；是 `/api/beta/verify` 这类 `permitAll` 接口 → **生产后端是旧构建**（`SecurityConfig` 里还没这行放行），重新部署即可 |
+| 同一接口本机 200、生产 403 | 部署版本落后于代码，**不是**反代配置错。查该放行行是哪个提交加的：`git log -S'/api/beta/verify' -- src/main/java/com/ming/northstar_backend/config/SecurityConfig.java`，再与生产发布时间比对 |
+| 客户端 Mod 全员卡在验证界面 | 用它自己的地址打一次：`curl -s "<verifyUrl>"`。403/超时都会被 Mod 判为「服务不可用」——不消耗重试次数，但玩家出不去（`blockEscape = true` 时 ESC 也禁用） |
 | 发版后仍是旧页面 | `index.html` 被缓存；检查 `location = /index.html` 的 `Cache-Control` |
 | 白名单 CSV 导入报 413 | `client_max_body_size` 太小 |
 | 限流日志里的 IP 全是 127.0.0.1 | 反代没传 `X-Forwarded-For`，或后端 `forward-headers-strategy` 未生效 |
