@@ -142,6 +142,20 @@
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="noticeState.open"
+      :title="noticeState.title"
+      :message="noticeState.message"
+      :details="noticeState.details"
+      :tone="noticeState.tone"
+      :confirm-text="noticeState.confirmText"
+      :confirm-icon="noticeState.confirmIcon"
+      :show-cancel="false"
+      kicker="BETA ACCESS"
+      @confirm="dismissNotice"
+      @cancel="dismissNotice"
+    />
   </div>
 </template>
 
@@ -150,6 +164,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { checkBeta, applyBeta, getBetaPlans } from '../api/beta'
 import { useAuth } from '../stores/auth'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 
 const router = useRouter()
 const { isLoggedIn } = useAuth()
@@ -163,6 +178,25 @@ const applyReason = ref('')
 const plans = ref([])
 const plansLoading = ref(true)
 const selectedPlanId = ref('')
+
+/** 站内提示弹窗（取代 window.alert）：成功/失败都走同一套面板样式。 */
+const noticeState = ref({
+  open: false,
+  title: '',
+  message: '',
+  details: [],
+  tone: 'default',
+  confirmText: '知道了',
+  confirmIcon: 'check'
+})
+
+function showNotice({ title, message, details = [], tone = 'default', confirmText = '知道了', confirmIcon = 'check' }) {
+  noticeState.value = { open: true, title, message, details, tone, confirmText, confirmIcon }
+}
+
+const dismissNotice = () => {
+  noticeState.value = { ...noticeState.value, open: false }
+}
 
 const today = new Date().toISOString().slice(0, 10)
 const openPlans = computed(() => plans.value.filter(plan =>
@@ -237,12 +271,21 @@ async function submitApply() {
       reason: applyReason.value,
       planId: Number(selectedPlanId.value)
     })
-    alert('申请已提交！我们会通过邮件通知你结果。')
+    showNotice({
+      title: '申请已提交',
+      message: '我们会在审核完成后通过邮件通知你结果，请留意注册邮箱。',
+      tone: 'success'
+    })
     applyEmail.value = ''
     applyReason.value = ''
     selectedPlanId.value = openPlans.value[0]?.id || ''
   } catch (e) {
-    alert(e.response?.data?.message || '申请提交失败')
+    showNotice({
+      title: '申请提交失败',
+      message: e.response?.data?.message || '服务暂时不可用，请稍后重试。',
+      tone: 'danger',
+      confirmText: '关闭'
+    })
   }
 }
 

@@ -949,6 +949,21 @@
         </form>
       </section>
     </div>
+
+    <ConfirmDialog
+      :open="confirmState.open"
+      :title="confirmState.title"
+      :message="confirmState.message"
+      :details="confirmState.details"
+      :confirm-text="confirmState.confirmText"
+      :cancel-text="confirmState.cancelText"
+      :confirm-icon="confirmState.confirmIcon"
+      :tone="confirmState.tone"
+      :busy="actionLoading"
+      kicker="ADMIN ACTION"
+      @confirm="resolveConfirm(true)"
+      @cancel="resolveConfirm(false)"
+    />
   </div>
 </template>
 
@@ -979,6 +994,7 @@ import {
   updateAdminUser
 } from '../api/admin'
 import PlayerAvatar from '../components/PlayerAvatar.vue'
+import ConfirmDialog from '../components/ConfirmDialog.vue'
 import { useAuth } from '../stores/auth'
 
 const { currentUser } = useAuth()
@@ -1024,6 +1040,43 @@ const loading = ref(true)
 const actionLoading = ref(false)
 const error = ref('')
 const notice = ref('')
+
+/**
+ * 站内确认弹窗状态。把 ConfirmDialog 包成 Promise，调用处就能写成
+ * `if (!(await askConfirm({...}))) return`，与原来的 window.confirm 用法一一对应。
+ */
+const confirmState = reactive({
+  open: false,
+  title: '请确认操作',
+  message: '',
+  details: [],
+  confirmText: '确定',
+  cancelText: '取消',
+  confirmIcon: 'check',
+  tone: 'default',
+  resolve: null
+})
+
+function askConfirm(options = {}) {
+  return new Promise((resolve) => {
+    confirmState.open = true
+    confirmState.title = options.title || '请确认操作'
+    confirmState.message = options.message || ''
+    confirmState.details = options.details || []
+    confirmState.confirmText = options.confirmText || '确定'
+    confirmState.cancelText = options.cancelText || '取消'
+    confirmState.confirmIcon = options.confirmIcon || 'check'
+    confirmState.tone = options.tone || 'default'
+    confirmState.resolve = resolve
+  })
+}
+
+function resolveConfirm(accepted) {
+  const pending = confirmState.resolve
+  confirmState.open = false
+  confirmState.resolve = null
+  if (pending) pending(accepted)
+}
 const overview = ref({})
 const users = ref([])
 const betaApplications = ref([])
@@ -1456,7 +1509,15 @@ async function toggleBetaWhitelist(entry) {
 }
 
 async function removeBetaWhitelist(entry) {
-  if (!window.confirm(`确认删除 QQ ${entry.qq} 的白名单资格？`)) return
+  const accepted = await askConfirm({
+    title: '删除白名单条目',
+    message: `确认删除 QQ ${entry.qq} 的白名单资格？`,
+    details: ['删除后该玩家将无法通过客户端内测校验；此操作不可撤销。'],
+    confirmText: '删除',
+    confirmIcon: 'trash',
+    tone: 'danger'
+  })
+  if (!accepted) return
   actionLoading.value = true
   error.value = ''
   try {
@@ -1474,7 +1535,14 @@ async function removeBetaWhitelist(entry) {
 }
 
 async function syncApprovedWhitelist() {
-  if (!window.confirm('按账号状态重建白名单？\n\n会为「已通过」的玩家补齐/更新白名单条目，并清理已失去资格却仍在放行的系统条目。\n手工录入的条目不会被删除或修改。')) return
+  const accepted = await askConfirm({
+    title: '按账号状态重建白名单',
+    message: '会为「已通过」的玩家补齐 / 更新白名单条目，并清理已失去资格却仍在放行的系统条目。',
+    details: ['手工录入的条目不会被删除或修改。', '重建只依据账号的内测资格状态，不影响账号本身。'],
+    confirmText: '开始重建',
+    confirmIcon: 'refresh'
+  })
+  if (!accepted) return
   actionLoading.value = true
   error.value = ''
   try {
@@ -1530,7 +1598,16 @@ async function readBetaWhitelistFile(event) {
 
 async function submitBetaWhitelistImport() {
   if (!betaWhitelistImportText.value.trim()) return
-  if (betaWhitelistReplace.value && !window.confirm('导入前会清空现有白名单，确认继续？')) return
+  if (betaWhitelistReplace.value) {
+    const accepted = await askConfirm({
+      title: '覆盖导入白名单',
+      message: '当前为「覆盖」模式：导入前会先清空全部现有白名单条目，再写入文件内容。',
+      details: ['手工录入的条目会一并被清空，且不可撤销。', '如只需追加，请关闭「覆盖」后重新提交。'],
+      confirmText: '清空并导入',
+      tone: 'danger'
+    })
+    if (!accepted) return
+  }
   actionLoading.value = true
   error.value = ''
   betaWhitelistImportResult.value = null
