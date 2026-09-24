@@ -63,29 +63,11 @@
           <h2 class="status-title">暂未获得内测资格</h2>
         </div>
         <p class="denied-msg">你的账号 <strong>{{ queryId }}</strong> 当前不在内测名单中</p>
-        <div class="apply-section">
-          <h3 class="apply-title">申请内测资格</h3>
-          <div class="apply-form">
-            <select v-model="selectedPlanId" class="ns-input" :disabled="!openPlans.length">
-              <option value="" disabled>{{ openPlans.length ? '选择内测计划' : '当前暂无可申请计划' }}</option>
-              <option v-for="plan in openPlans" :key="plan.id" :value="plan.id">
-                {{ plan.phase }} · {{ plan.name }}（剩余 {{ plan.capacity - plan.approvedCount }} 名）
-              </option>
-            </select>
-            <input v-model="applyEmail" class="ns-input" placeholder="输入你的邮箱地址..." />
-            <select v-model="applyReason" class="ns-input">
-              <option value="" disabled>选择申请理由</option>
-              <option value="veteran">资深MC玩家 (3年以上)</option>
-              <option value="competitive">竞技/赛事经验</option>
-              <option value="content">内容创作者</option>
-              <option value="tester">测试经验丰富</option>
-              <option value="other">其他</option>
-            </select>
-            <button class="ns-btn ns-btn-filled" @click="submitApply" :disabled="!selectedPlanId || !openPlans.length">
-              <NsIcon name="send" /> 提交申请
-            </button>
-          </div>
-          <p class="apply-hint">{{ openPlans.length ? '审核周期约 3-5 个工作日，结果将通过邮件通知' : '计划开放后即可在此提交申请' }}</p>
+        <div class="denied-actions">
+          <button v-if="openPlans.length" class="ns-btn ns-btn-filled" @click="scrollToApply">
+            <NsIcon name="send" /> 去申请内测资格
+          </button>
+          <p v-else class="apply-hint">当前没有开放中的内测计划，开放后即可申请</p>
         </div>
       </div>
     </div>
@@ -99,10 +81,118 @@
         <p class="notfound-msg">请检查输入的账号ID或邮箱是否正确，或先注册 NorthStar 平台账号</p>
         <div class="result-actions">
           <button class="ns-btn" @click="result = null"><NsIcon name="refresh" /> 重新查询</button>
-          <a href="#" class="ns-btn ns-btn-filled"><NsIcon name="user-plus" /> 注册账号</a>
+          <router-link to="/auth/register" class="ns-btn ns-btn-filled"><NsIcon name="user-plus" /> 注册账号</router-link>
         </div>
       </div>
     </div>
+
+    <!-- 申请内测：只有存在「开放中」的计划才可申请，且必须登录平台账号 -->
+    <section id="beta-apply" class="apply-block">
+      <h2 class="section-title">申请内测</h2>
+      <p class="apply-lead">
+        内测名额与平台账号绑定：申请记录、QQ、Minecraft ID 都挂在账号上，审批通过后白名单也按这个账号下发。
+      </p>
+
+      <div v-if="plansLoading" class="plan-state">正在加载内测计划</div>
+
+      <!-- ① 没有开放中的计划：不提供申请入口 -->
+      <div v-else-if="applyGate === 'no-plan'" class="apply-card ns-card">
+        <div class="apply-icon"><NsIcon name="clock" /></div>
+        <h3 class="apply-heading">当前没有开放中的内测计划</h3>
+        <p class="apply-text">名额放出的第一时间会出现在下方「内测计划」里，届时登录平台账号即可提交申请。</p>
+      </div>
+
+      <!-- ② 未登录：申请的唯一前置条件是登录，先给登录/注册两条路 -->
+      <div v-else-if="applyGate === 'logged-out'" class="apply-card ns-card">
+        <div class="apply-icon"><NsIcon name="lock" /></div>
+        <h3 class="apply-heading">申请内测需要登录平台账号</h3>
+        <p class="apply-text">
+          现有 <strong>{{ openPlans.length }}</strong> 个计划开放中，登录后即可提交申请。
+        </p>
+        <ul class="apply-points">
+          <li><NsIcon name="arrow-right" :size="13" /><span>申请身份由登录账号决定，不接受代填别人的 QQ 或游戏 ID</span></li>
+          <li><NsIcon name="arrow-right" :size="13" /><span>还没有账号？注册需绑定 QQ，Minecraft ID 注册后不可更改</span></li>
+        </ul>
+        <div class="apply-actions">
+          <button class="ns-btn ns-btn-filled" @click="goLogin"><NsIcon name="login" /> 登录后申请</button>
+          <button class="ns-btn" @click="goRegister"><NsIcon name="user-plus" /> 注册账号</button>
+        </div>
+      </div>
+
+      <!-- ③ 已有资格 -->
+      <div v-else-if="applyGate === 'approved'" class="apply-card ns-card apply-approved">
+        <div class="apply-icon ok"><NsIcon name="check-circle" /></div>
+        <h3 class="apply-heading">你已拥有内测资格</h3>
+        <p class="apply-text">无需再次申请，直接用下面的账号进游戏即可。若客户端仍判断未通过，请到账号设置查看白名单状态。</p>
+        <div class="apply-actions">
+          <router-link to="/settings" class="ns-btn ns-btn-filled"><NsIcon name="settings" /> 查看账号设置</router-link>
+          <router-link to="/docs" class="ns-btn"><NsIcon name="file" /> 查看使用指南</router-link>
+        </div>
+      </div>
+
+      <!-- ④ 审核中 -->
+      <div v-else-if="applyGate === 'pending'" class="apply-card ns-card apply-pending">
+        <div class="apply-icon"><NsIcon name="clock" /></div>
+        <h3 class="apply-heading">申请已提交，正在审核</h3>
+        <div class="apply-receipt">
+          <div class="receipt-row"><span class="receipt-label">申请计划</span><span class="receipt-value">{{ myApplication.planName || '—' }}</span></div>
+          <div class="receipt-row"><span class="receipt-label">申请时间</span><span class="receipt-value">{{ myApplication.createdAt || '—' }}</span></div>
+          <div class="receipt-row"><span class="receipt-label">通知邮箱</span><span class="receipt-value">{{ myApplication.email || '—' }}</span></div>
+        </div>
+        <p class="apply-text">审核周期约 3-5 个工作日，结果会通过邮件通知，期间不能重复提交。</p>
+      </div>
+
+      <!-- ⑤ 可申请 -->
+      <div v-else class="apply-card ns-card">
+        <h3 class="apply-heading apply-heading-left">填写申请</h3>
+
+        <div class="apply-identity">
+          <div class="identity-row">
+            <span class="identity-label"><NsIcon name="user" /> 申请账号</span>
+            <span class="identity-value">{{ currentUser?.username }}</span>
+          </div>
+          <div class="identity-row">
+            <span class="identity-label"><NsIcon name="shield" /> QQ 号</span>
+            <span class="identity-value" :class="{ missing: !currentUser?.qq }">{{ currentUser?.qq || '未绑定' }}</span>
+          </div>
+          <div class="identity-row">
+            <span class="identity-label"><NsIcon name="gamepad" /> Minecraft ID</span>
+            <span class="identity-value" :class="{ missing: !currentUser?.mcId }">{{ currentUser?.mcId || '未绑定' }}</span>
+          </div>
+        </div>
+        <p class="apply-note">以上信息取自你的平台账号，客户端进服就是用它们判定的，申请时不能另填。</p>
+
+        <div v-if="identityGap" class="apply-warn">
+          <NsIcon name="warning" :size="14" />
+          <span>
+            账号还缺{{ identityGap }}，审批通过后无法自动下发客户端白名单，请先到
+            <router-link to="/settings">账号设置</router-link> 补齐再申请。
+          </span>
+        </div>
+        <div v-else-if="lastApplicationDenied" class="apply-warn info">
+          <NsIcon name="question" :size="14" />
+          <span>你上一次申请没有通过，可以换一个计划重新提交。</span>
+        </div>
+
+        <div class="apply-form">
+          <select v-model="selectedPlanId" class="ns-input" :disabled="!openPlans.length">
+            <option value="" disabled>选择内测计划</option>
+            <option v-for="plan in openPlans" :key="plan.id" :value="plan.id">
+              {{ plan.phase }} · {{ plan.name }}（剩余 {{ plan.capacity - plan.approvedCount }} 名）
+            </option>
+          </select>
+          <input v-model.trim="applyEmail" class="ns-input" placeholder="接收审核结果的邮箱" />
+          <select v-model="applyReason" class="ns-input">
+            <option value="" disabled>选择申请理由</option>
+            <option v-for="opt in reasonOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+          </select>
+          <button class="ns-btn ns-btn-filled" @click="submitApply" :disabled="applying || !selectedPlanId || !applyReason">
+            <NsIcon name="send" /> {{ applying ? '提交中...' : '提交申请' }}
+          </button>
+        </div>
+        <p class="apply-hint">审核周期约 3-5 个工作日，结果将通过邮件通知</p>
+      </div>
+    </section>
 
     <div class="beta-info-section">
       <h2 class="section-title">内测内容</h2>
@@ -162,12 +252,12 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { checkBeta, applyBeta, getBetaPlans } from '../api/beta'
+import { checkBeta, applyBeta, getBetaPlans, getMyBetaApplication } from '../api/beta'
 import { useAuth } from '../stores/auth'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 
 const router = useRouter()
-const { isLoggedIn } = useAuth()
+const { isLoggedIn, currentUser } = useAuth()
 
 const queryId = ref('')
 const result = ref(null)
@@ -178,6 +268,17 @@ const applyReason = ref('')
 const plans = ref([])
 const plansLoading = ref(true)
 const selectedPlanId = ref('')
+/** 当前登录账号的申请状态；未登录或接口失败时为 null。 */
+const myApplication = ref(null)
+const applying = ref(false)
+
+const reasonOptions = [
+  { value: 'veteran', label: '资深MC玩家 (3年以上)' },
+  { value: 'competitive', label: '竞技/赛事经验' },
+  { value: 'content', label: '内容创作者' },
+  { value: 'tester', label: '测试经验丰富' },
+  { value: 'other', label: '其他' }
+]
 
 /** 站内提示弹窗（取代 window.alert）：成功/失败都走同一套面板样式。 */
 const noticeState = ref({
@@ -205,6 +306,35 @@ const openPlans = computed(() => plans.value.filter(plan =>
   && (!plan.endsOn || plan.endsOn >= today)
   && Number(plan.approvedCount) < Number(plan.capacity)
 ))
+
+/**
+ * 申请区的五种状态，决定这一块显示什么。
+ *
+ * 顺序有讲究：先看有没有可申请的计划，再看有没有登录 —— 没有开放计划时，
+ * 让一个未登录的人去登录也申请不到东西，先告诉他「暂时没有名额」更诚实。
+ * 资格状态优先取 myApplication（接口返回值最新），登录时缓存可能已经过期。
+ */
+const applyGate = computed(() => {
+  if (!openPlans.value.length) return 'no-plan'
+  if (!isLoggedIn.value) return 'logged-out'
+
+  const betaStatus = myApplication.value?.betaStatus || currentUser.value?.betaStatus
+  if (betaStatus === 'approved' || myApplication.value?.status === 'approved') return 'approved'
+  if (myApplication.value?.hasApplication && myApplication.value.status === 'pending') return 'pending'
+  return 'ready'
+})
+
+/** 账号缺少哪项进服校验凭据；缺了照样能申请，但资格发下来也进不去游戏。 */
+const identityGap = computed(() => {
+  const gaps = []
+  if (!currentUser.value?.qq) gaps.push(' QQ 号')
+  if (!currentUser.value?.mcId) gaps.push(' Minecraft ID')
+  return gaps.join(' 与')
+})
+
+const lastApplicationDenied = computed(() =>
+  Boolean(myApplication.value?.hasApplication && myApplication.value.status === 'denied')
+)
 
 const timeline = computed(() => plans.value.map(plan => ({
   ...plan,
@@ -258,34 +388,72 @@ async function loadPlans() {
   }
 }
 
-async function submitApply() {
-  if (!selectedPlanId.value || !applyEmail.value || !applyReason.value) return
+/** 只有登录后才查得到自己的申请状态，未登录直接跳过（否则必然 403）。 */
+async function loadMyApplication() {
   if (!isLoggedIn.value) {
-    router.push('/auth/login')
+    myApplication.value = null
     return
   }
   try {
+    const res = await getMyBetaApplication()
+    myApplication.value = res.data || null
+    // 通知邮箱默认用账号邮箱，玩家仍可改成别的地址
+    if (!applyEmail.value) applyEmail.value = currentUser.value?.email || ''
+  } catch (e) {
+    // 查不到就当作「没有申请记录」，让表单显示出来；提交时后端还会再拦一次
+    myApplication.value = null
+  }
+}
+
+function goLogin() {
+  router.push({ path: '/auth/login', query: { redirect: '/beta' } })
+}
+
+function goRegister() {
+  router.push({ path: '/auth/register', query: { redirect: '/beta' } })
+}
+
+function scrollToApply() {
+  document.getElementById('beta-apply')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+async function submitApply() {
+  // 再次确认登录态：会话可能在页面停留期间失效，与其提交后拿 403 不如先引导登录
+  if (!isLoggedIn.value) {
+    goLogin()
+    return
+  }
+  if (!selectedPlanId.value || !applyReason.value) return
+
+  applying.value = true
+  try {
     await applyBeta({
-      query: queryId.value,
-      email: applyEmail.value,
+      email: applyEmail.value || currentUser.value?.email || '',
       reason: applyReason.value,
       planId: Number(selectedPlanId.value)
     })
+    await loadMyApplication()
     showNotice({
       title: '申请已提交',
-      message: '我们会在审核完成后通过邮件通知你结果，请留意注册邮箱。',
+      message: '我们会在审核完成后通过邮件通知你结果，请留意通知邮箱。',
       tone: 'success'
     })
-    applyEmail.value = ''
     applyReason.value = ''
-    selectedPlanId.value = openPlans.value[0]?.id || ''
   } catch (e) {
+    // 会话过期时 axios 拦截器已经把 token 清掉并跳登录页，这里不再叠一层弹窗
+    if (e.response?.status === 401) {
+      myApplication.value = null
+      goLogin()
+      return
+    }
     showNotice({
       title: '申请提交失败',
       message: e.response?.data?.message || '服务暂时不可用，请稍后重试。',
       tone: 'danger',
       confirmText: '关闭'
     })
+  } finally {
+    applying.value = false
   }
 }
 
@@ -299,7 +467,10 @@ function planStatusLabel(status) {
   return { active: '开放中', paused: '已暂停', completed: '已完成', draft: '草稿' }[status] || status
 }
 
-onMounted(loadPlans)
+onMounted(() => {
+  loadPlans()
+  loadMyApplication()
+})
 </script>
 
 <style scoped>
@@ -338,10 +509,42 @@ onMounted(loadPlans)
 .detail-value { font-weight: 600; font-size: 14px; }
 .result-actions { display: flex; gap: 16px; }
 .result-actions .ns-icon { margin-right: 4px; }
-.denied-msg { color: var(--text-secondary); margin-bottom: 28px; font-size: 15px; }
+.denied-msg { color: var(--text-secondary); margin-bottom: 24px; font-size: 15px; }
 .denied-msg strong { color: var(--accent-primary); }
-.apply-section { padding-top: 24px; border-top: 1px solid var(--border-color); }
-.apply-title { font-size: 18px; font-weight: 700; margin-bottom: 16px; }
+.denied-actions { padding-top: 24px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+
+/* ---- 申请内测区 ---- */
+.apply-block { max-width: 700px; margin: 0 auto 56px; }
+.apply-lead { color: var(--text-secondary); font-size: 14px; line-height: 1.7; margin: -18px 0 24px; }
+.apply-card { padding: 32px 32px 28px; }
+.apply-icon { margin-bottom: 16px; }
+.apply-icon .ns-icon { font-size: 34px; color: var(--accent-primary); }
+.apply-icon.ok .ns-icon { color: var(--accent-green); }
+.apply-heading { font-size: 19px; font-weight: 700; margin-bottom: 12px; text-align: center; }
+.apply-heading-left { text-align: left; margin-bottom: 18px; }
+.apply-text { color: var(--text-secondary); font-size: 14px; line-height: 1.75; text-align: center; }
+.apply-text strong { color: var(--accent-primary); }
+.apply-points { display: grid; gap: 8px; margin: 20px 0 4px; list-style: none; padding: 0 4px; }
+.apply-points li { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.65; color: var(--text-secondary); }
+.apply-points li .ns-icon { margin-top: 3px; color: var(--accent-primary); flex-shrink: 0; }
+.apply-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-top: 24px; }
+.apply-approved { border-color: rgba(76,175,80,0.3); }
+.apply-pending { border-color: rgba(255,140,0,0.35); }
+.apply-receipt { display: flex; flex-direction: column; gap: 12px; margin: 18px 0 16px; padding: 18px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); }
+.receipt-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.receipt-label { color: var(--text-muted); font-size: 13px; }
+.receipt-value { font-weight: 600; font-size: 13px; text-align: right; word-break: break-all; }
+.apply-identity { display: flex; flex-direction: column; gap: 12px; padding: 18px; background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); }
+.identity-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.identity-label { display: flex; align-items: center; gap: 8px; color: var(--text-muted); font-size: 13px; }
+.identity-label .ns-icon { font-size: 14px; }
+.identity-value { font-weight: 600; font-size: 14px; }
+.identity-value.missing { color: #ffc107; font-weight: 500; }
+.apply-note { font-size: 12px; color: var(--text-muted); line-height: 1.7; margin: 10px 0 18px; }
+.apply-warn { display: flex; align-items: flex-start; gap: 8px; padding: 12px 14px; margin-bottom: 18px; font-size: 13px; line-height: 1.65; color: #ffc107; border: 1px solid rgba(255,193,7,0.35); background: rgba(255,193,7,0.07); }
+.apply-warn .ns-icon { margin-top: 2px; flex-shrink: 0; }
+.apply-warn a { color: var(--accent-primary); text-decoration: underline; }
+.apply-warn.info { color: var(--text-secondary); border-color: var(--border-color); background: rgba(255,255,255,0.02); }
 .apply-form { display: flex; flex-direction: column; gap: 12px; margin-bottom: 12px; }
 .apply-hint { font-size: 13px; color: var(--text-muted); }
 .notfound-msg { color: var(--text-secondary); margin-bottom: 24px; font-size: 15px; }
@@ -376,5 +579,14 @@ onMounted(loadPlans)
 .plan-state { min-height: 140px; display: flex; align-items: center; justify-content: center; border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color); color: var(--text-muted); }
 @media (max-width: 620px) {
   .timeline-meta .plan-status { margin-left: 0; }
+  .beta { padding: 32px 18px 64px; }
+  .search-form { flex-direction: column; }
+  .apply-card { padding: 26px 20px 22px; }
+  .apply-actions { flex-direction: column; }
+  .apply-actions .ns-btn { justify-content: center; width: 100%; }
+  .identity-row, .receipt-row { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .receipt-value { text-align: left; }
+  .result-actions { flex-direction: column; }
+  .result-actions .ns-btn { justify-content: center; }
 }
 </style>

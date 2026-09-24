@@ -164,13 +164,14 @@
           <p class="success-msg">欢迎加入 NorthStar，{{ form.username }}</p>
           <p v-if="registeredBeta" class="success-beta">已自动检测并关联内测资格</p>
           <p class="success-hint">验证邮件已发送至 {{ form.email }}，请查收</p>
-          <router-link to="/" class="ns-btn ns-btn-filled auth-submit" style="margin-top:24px">
-            <NsIcon name="login" /> 进入平台
+          <router-link :to="postAuthTarget" class="ns-btn ns-btn-filled auth-submit" style="margin-top:24px">
+            <NsIcon name="login" /> {{ redirectTo ? '继续申请内测' : '进入平台' }}
           </router-link>
         </div>
 
         <div class="auth-footer" v-if="!registered">
-          已有账号？<router-link to="/auth/login" class="auth-link">立即登录</router-link>
+          已有账号？
+          <router-link :to="{ path: '/auth/login', query: redirectQuery }" class="auth-link">立即登录</router-link>
         </div>
       </div>
     </div>
@@ -179,11 +180,11 @@
 
 <script setup>
 import { ref, reactive, computed } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { registerApi, sendCodeApi } from '../api/auth'
 import { useAuth } from '../stores/auth'
 
-const router = useRouter()
+const route = useRoute()
 const { login } = useAuth()
 const step = ref(1)
 const showPwd = ref(false)
@@ -195,6 +196,14 @@ const form = reactive({ username: '', email: '', qq: '', mcId: '', password: '',
 const codeSending = ref(false)
 const codeCountdown = ref(0)
 let countdownTimer = null
+
+/**
+ * 从别处跳来的注册（例如内测页的「注册账号」）会带上 redirect，
+ * 注册完应当回到原来那一页继续，而不是被丢回首页。
+ */
+const redirectTo = computed(() => (typeof route.query.redirect === 'string' ? route.query.redirect : ''))
+const postAuthTarget = computed(() => redirectTo.value || '/')
+const redirectQuery = computed(() => (redirectTo.value ? { redirect: redirectTo.value } : {}))
 
 const validUsername = computed(() => /^[a-zA-Z0-9_]{3,16}$/.test(form.username))
 const validEmail = computed(() => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email))
