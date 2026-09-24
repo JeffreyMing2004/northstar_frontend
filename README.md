@@ -3,13 +3,32 @@
 NorthStar 北极战区的玩家门户：注册登录、内测资格申请与查询、排行榜与战绩查询、房间大厅、管理后台、账号设置。
 
 - 站点：<https://northstar.mingpixel.net>
-- 后端：[`northstar_backend`](https://github.com/JeffreyMing2004/northstar_Backend)（Spring Boot，独立仓库）
-- 客户端：`NorthStarClientverification`（Forge 1.20.1 Mod，独立仓库）
+- 后端：[`northstar_Backend`](https://github.com/JeffreyMing2004/northstar_Backend)（Spring Boot，独立仓库）
+- 客户端：[`NorthStarClientVerification`](https://github.com/JeffreyMing2004/NorthStarClientVerification)（Forge 1.20.1 Mod，独立仓库）
 
 ## 技术栈
 
 Vue 3 + Vue Router 4（hash 路由）+ Vite 5 + Axios。
 没有引入状态管理库，登录态放在 `src/stores/auth.js`，持久化在 `localStorage`。
+
+## 页面
+
+使用 hash 路由，所以线上地址形如 `https://northstar.mingpixel.net/#/beta`。
+
+| 路径 | 说明 | 权限 |
+| --- | --- | --- |
+| `/` | 首页 | 公开 |
+| `/leaderboard` | 排行榜 | 公开 |
+| `/stats` | 战绩查询 | 公开 |
+| `/lobby` | 房间大厅 | 公开 |
+| `/profile/:playerId` | 玩家资料 | 公开 |
+| `/profile/:playerId/stats` | 玩家战绩详情 | 公开 |
+| `/beta` | 内测资格：开放计划列表 + 提交申请 | 申请需登录 |
+| `/settings` | 账号设置：QQ 与 Minecraft ID 绑定 | 需登录 |
+| `/admin` | 管理后台：用户 / 白名单 / 内测计划 | 需管理员 |
+| `/docs` | 文档 | 公开 |
+| `/legal/{terms,privacy,cookies}` | 用户协议 / 隐私政策 / Cookie 说明 | 公开 |
+| `/auth/{login,register}` | 登录 / 注册 | 公开（已登录时自动回首页） |
 
 ## 快速开始
 
@@ -66,4 +85,13 @@ deploy/           生产部署：OpenResty 站点配置与部署说明
 见 [`deploy/README.md`](deploy/README.md)：OpenResty 配置、环境变量、验收清单与排错对照表。
 
 其中一处最容易踩：反代 `X-Forwarded-For` 必须用 `$remote_addr` **覆盖**而不是 `$proxy_add_x_forwarded_for` 追加，否则客户端可伪造来源 IP 绕过校验接口的限流。
-"# northstar_frontend" 
+
+## 许可证
+
+[MIT](LICENSE) © 2026 抚州明像素网络科技有限公司 (MingPixel)
+
+任何人可以自由使用、修改、分发本仓库代码，只需保留版权与许可声明。
+
+> 两点说明：**「NorthStar」「北极战区」名称与站点美术资源不随 MIT 授权**，请勿用于自己的站点；
+> 另外本项目是**前后端分离**的，只克隆本仓库跑起来只会得到一个连不上数据的空壳 ——
+> 完整功能需要配合上面的后端仓库。
