@@ -14,6 +14,7 @@ const routes = [
   { path: '/legal/privacy', name: 'Privacy', component: () => import('../views/LegalView.vue'), props: { policyKey: 'privacy' } },
   { path: '/legal/cookies', name: 'Cookies', component: () => import('../views/LegalView.vue'), props: { policyKey: 'cookies' } },
   { path: '/beta', name: 'Beta', component: () => import('../views/BetaView.vue') },
+  { path: '/feedback', name: 'Feedback', component: () => import('../views/FeedbackView.vue') },
   { path: '/settings', name: 'Settings', component: () => import('../views/SettingsView.vue'), meta: { requiresAuth: true } },
   { path: '/auth/login', name: 'Login', component: () => import('../views/LoginView.vue') },
   { path: '/auth/register', name: 'Register', component: () => import('../views/RegisterView.vue') },

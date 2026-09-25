@@ -6,6 +6,7 @@
         <router-link to="/legal/terms">用户协议</router-link>
         <router-link to="/legal/privacy">隐私政策</router-link>
         <router-link to="/legal/cookies">Cookie 协议</router-link>
+        <router-link to="/feedback">问题反馈</router-link>
         <a href="mailto:northstar2026@yeah.net">联系支持</a>
       </div>
     </div>

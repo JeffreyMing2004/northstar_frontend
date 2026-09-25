@@ -12,6 +12,7 @@
         <router-link to="/lobby" active-class="active">房间大厅</router-link>
         <router-link to="/docs" active-class="active">文档中心</router-link>
         <router-link to="/beta" active-class="active">内测资格</router-link>
+        <router-link to="/feedback" active-class="active">问题反馈</router-link>
         <router-link v-if="isAdmin" to="/admin" active-class="active">管理</router-link>
       </nav>
       <div class="header-actions">
@@ -46,6 +47,9 @@
             <router-link to="/beta" class="dropdown-item" @click="showMenu = false">
               <NsIcon name="key" /> 内测资格
             </router-link>
+            <router-link to="/feedback" class="dropdown-item" @click="showMenu = false">
+              <NsIcon name="warning" /> 问题反馈
+            </router-link>
             <router-link to="/settings" class="dropdown-item" @click="showMenu = false">
               <NsIcon name="settings" /> 账号设置
             </router-link>
@@ -79,6 +83,7 @@
         <router-link to="/lobby" active-class="active" @click="mobileOpen = false">房间大厅</router-link>
         <router-link to="/docs" active-class="active" @click="mobileOpen = false">文档中心</router-link>
         <router-link to="/beta" active-class="active" @click="mobileOpen = false">内测资格</router-link>
+        <router-link to="/feedback" active-class="active" @click="mobileOpen = false">问题反馈</router-link>
         <router-link v-if="isAdmin" to="/admin" active-class="active" @click="mobileOpen = false">管理</router-link>
       </nav>
       <div class="mobile-divider"></div>

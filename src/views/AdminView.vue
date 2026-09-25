@@ -618,6 +618,65 @@
           </div>
         </section>
 
+        <section v-else-if="activeTab === 'feedback'" class="workspace-section">
+          <div class="toolbar">
+            <div class="segmented-control" aria-label="反馈状态">
+              <button
+                v-for="option in feedbackFilterOptions"
+                :key="option.value"
+                :class="{ active: feedbackFilter === option.value }"
+                type="button"
+                @click="feedbackFilter = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+            <span class="result-count">{{ filteredFeedback.length }} 条反馈</span>
+          </div>
+
+          <div class="table-shell">
+            <table class="data-table feedback-table">
+              <thead>
+                <tr>
+                  <th>提交编号</th>
+                  <th>分类</th>
+                  <th>问题描述</th>
+                  <th>提交人</th>
+                  <th>QQ</th>
+                  <th>状态</th>
+                  <th>提交时间</th>
+                  <th class="action-column">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="report in filteredFeedback" :key="report.id">
+                  <td class="id-cell">{{ report.reportNo }}</td>
+                  <td>{{ report.category }}</td>
+                  <td>
+                    <div class="report-desc">{{ report.description }}</div>
+                    <div v-if="report.adminNote" class="cell-subtext">备注：{{ report.adminNote }}</div>
+                  </td>
+                  <td><strong>{{ report.username }}</strong></td>
+                  <td>{{ report.qq || '未绑定' }}</td>
+                  <td><span :class="['status-tag', feedbackStatusClass(report.status)]">{{ feedbackStatusLabel(report.status) }}</span></td>
+                  <td>{{ formatDate(report.createdAt) }}</td>
+                  <td>
+                    <button
+                      class="command-button"
+                      type="button"
+                      :disabled="actionLoading"
+                      @click="openFeedbackProcess(report)"
+                    >
+                      {{ report.status === 'processed' ? '查看 / 修改' : '处理' }}
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <div v-if="!filteredFeedback.length" class="empty-row">暂无问题反馈</div>
+          </div>
+        </section>
+
         <section v-else class="workspace-section">
           <div class="toolbar">
             <div class="search-control">
@@ -950,6 +1009,52 @@
       </section>
     </div>
 
+    <div v-if="processingFeedback" class="modal-overlay" @click.self="closeFeedbackProcess">
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="feedback-process-title">
+        <header class="modal-header">
+          <div>
+            <span class="section-kicker">BUG REPORT</span>
+            <h2 id="feedback-process-title">处理反馈 {{ processingFeedback.reportNo }}</h2>
+          </div>
+          <button class="icon-button" type="button" title="关闭" aria-label="关闭" @click="closeFeedbackProcess">
+            <NsIcon name="close-circle" />
+          </button>
+        </header>
+        <div class="feedback-process-meta">
+          <div class="meta-row"><span>提交人</span><strong>{{ processingFeedback.username }}</strong></div>
+          <div class="meta-row"><span>QQ</span><strong>{{ processingFeedback.qq || '未绑定' }}</strong></div>
+          <div class="meta-row"><span>分类</span><strong>{{ processingFeedback.category }}</strong></div>
+          <div class="meta-row"><span>提交时间</span><strong>{{ formatDate(processingFeedback.createdAt) }}</strong></div>
+        </div>
+        <div class="feedback-process-desc">{{ processingFeedback.description }}</div>
+        <form class="edit-form" @submit.prevent="submitFeedbackProcess">
+          <label>
+            <span>处理状态</span>
+            <select v-model="feedbackProcessForm.status" class="field-select">
+              <option value="pending">待处理</option>
+              <option value="processed">已处理</option>
+            </select>
+          </label>
+          <label class="full-field">
+            <span>处理备注</span>
+            <textarea
+              v-model="feedbackProcessForm.adminNote"
+              class="field-input field-textarea"
+              rows="4"
+              maxlength="500"
+              placeholder="可选：记录处理结果或原因"
+            ></textarea>
+          </label>
+          <div class="modal-actions">
+            <button class="command-button secondary" type="button" @click="closeFeedbackProcess">取消</button>
+            <button class="command-button" type="submit" :disabled="actionLoading">
+              <NsIcon name="save" /> 保存
+            </button>
+          </div>
+        </form>
+      </section>
+    </div>
+
     <ConfirmDialog
       :open="confirmState.open"
       :title="confirmState.title"
@@ -976,6 +1081,7 @@ import {
   decideAdminBetaApplication,
   deleteAdminBetaWhitelist,
   exportAdminBetaWhitelist,
+  getAdminFeedback,
   getAdminBetaVerifyLogs,
   getAdminBetaApplications,
   getAdminBetaWhitelist,
@@ -986,6 +1092,7 @@ import {
   getAdminUsers,
   grantAdminUser,
   importAdminBetaWhitelistCsv,
+  processAdminFeedback,
   revokeAdminUser,
   syncAdminBetaWhitelistAccounts,
   updateAdminBetaPlan,
@@ -1004,7 +1111,8 @@ const tabs = [
   { key: 'users', label: '玩家管理', icon: 'team' },
   { key: 'beta', label: '内测管理', icon: 'key' },
   { key: 'rooms', label: '房间监管', icon: 'home' },
-  { key: 'matches', label: '对局记录', icon: 'activity' }
+  { key: 'matches', label: '对局记录', icon: 'activity' },
+  { key: 'feedback', label: '问题反馈', icon: 'megaphone' }
 ]
 const betaFilterOptions = [
   { value: 'pending', label: '待审核' },
@@ -1026,13 +1134,19 @@ const adminLoadSections = [
   { label: '客户端白名单', load: () => loadBetaWhitelist() },
   { label: '校验日志', load: () => loadBetaVerifyLogs() },
   { label: '房间', load: () => loadRooms() },
-  { label: '对局记录', load: () => loadMatches() }
+  { label: '对局记录', load: () => loadMatches() },
+  { label: '问题反馈', load: () => loadFeedback() }
 ]
 const roomFilterOptions = [
   { value: '', label: '全部' },
   { value: 'waiting', label: '等待中' },
   { value: 'playing', label: '进行中' },
   { value: 'closed', label: '已关闭' }
+]
+const feedbackFilterOptions = [
+  { value: 'all', label: '全部' },
+  { value: 'pending', label: '待处理' },
+  { value: 'processed', label: '已处理' }
 ]
 
 const activeTab = ref('overview')
@@ -1085,6 +1199,7 @@ const betaWhitelist = ref([])
 const betaVerifyLogs = ref([])
 const rooms = ref([])
 const matches = ref([])
+const feedbackReports = ref([])
 const userSearch = ref('')
 const userBetaFilter = ref('')
 const betaMode = ref('members')
@@ -1102,6 +1217,8 @@ const verifyLogTotal = ref(0)
 const showFullQq = ref(false)
 const roomFilter = ref('')
 const matchSearch = ref('')
+const feedbackFilter = ref('all')
+const processingFeedback = ref(null)
 const editingUser = ref(null)
 const showBetaAdd = ref(false)
 const showBetaPlan = ref(false)
@@ -1131,6 +1248,7 @@ const betaWhitelistForm = reactive({
   status: 1,
   expireAt: ''
 })
+const feedbackProcessForm = reactive({ status: 'processed', adminNote: '' })
 
 const activeTabMeta = computed(() => tabs.find(tab => tab.key === activeTab.value) || tabs[0])
 const metricItems = computed(() => [
@@ -1162,6 +1280,10 @@ const filteredMatches = computed(() => {
     [match.username, match.mode, match.mapName].some(value => String(value || '').toLowerCase().includes(keyword))
   )
 })
+const filteredFeedback = computed(() => feedbackFilter.value === 'all'
+  ? feedbackReports.value
+  : feedbackReports.value.filter(report => report.status === feedbackFilter.value)
+)
 
 async function refreshAll() {
   loading.value = true
@@ -1252,6 +1374,37 @@ async function loadRooms() {
 async function loadMatches() {
   const res = await getAdminMatches()
   matches.value = res.data || []
+}
+
+async function loadFeedback() {
+  const res = await getAdminFeedback()
+  feedbackReports.value = res.data || []
+}
+
+function openFeedbackProcess(report) {
+  processingFeedback.value = report
+  feedbackProcessForm.status = 'processed'
+  feedbackProcessForm.adminNote = report.adminNote || ''
+}
+
+function closeFeedbackProcess() {
+  processingFeedback.value = null
+}
+
+async function submitFeedbackProcess() {
+  if (!processingFeedback.value) return
+  actionLoading.value = true
+  error.value = ''
+  try {
+    const res = await processAdminFeedback(processingFeedback.value.id, { ...feedbackProcessForm })
+    showNotice(res.message || '反馈处理状态已更新')
+    closeFeedbackProcess()
+    await loadFeedback()
+  } catch (e) {
+    error.value = e.response?.data?.message || e.userMessage || '反馈处理失败'
+  } finally {
+    actionLoading.value = false
+  }
 }
 
 function openEditUser(user) {
@@ -1690,6 +1843,14 @@ function verifyLogStatusClass(result) {
 
 function verifyLogMatchLabel(matchedBy) {
   return { bound: '精确绑定', unbound: '不限定游戏 ID' }[matchedBy] || '—'
+}
+
+function feedbackStatusLabel(status) {
+  return { pending: '待处理', processed: '已处理' }[status] || status || '未知'
+}
+
+function feedbackStatusClass(status) {
+  return { pending: 'pending', processed: 'approved' }[status] || 'neutral'
 }
 
 function planLabel(planId) {
@@ -2773,5 +2934,64 @@ onMounted(refreshAll)
 .field-hint .ns-icon {
   margin-top: 2px;
   font-size: 13px;
+}
+
+.report-desc {
+  max-width: 340px;
+  white-space: normal;
+  line-height: 1.6;
+  word-break: break-word;
+}
+
+.feedback-table .command-button {
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+.feedback-process-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px 24px;
+  margin-bottom: 16px;
+}
+
+.meta-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.meta-row span {
+  color: var(--text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.meta-row strong {
+  font-size: 13px;
+  text-align: right;
+  word-break: break-all;
+}
+
+.feedback-process-desc {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border-color);
+  padding: 14px;
+  margin-bottom: 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+@media (max-width: 620px) {
+  .feedback-process-meta {
+    grid-template-columns: 1fr;
+  }
 }
 </style>

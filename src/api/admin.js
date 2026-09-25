@@ -99,3 +99,11 @@ export function getAdminRooms() {
 export function getAdminMatches() {
   return api.get('/admin/matches')
 }
+
+export function getAdminFeedback() {
+  return api.get('/admin/feedback')
+}
+
+export function processAdminFeedback(id, data) {
+  return api.patch('/admin/feedback/' + id, data)
+}
