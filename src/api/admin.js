@@ -107,3 +107,7 @@ export function getAdminFeedback() {
 export function processAdminFeedback(id, data) {
   return api.patch('/admin/feedback/' + id, data)
 }
+
+export function exportAdminFeedback() {
+  return api.get('/admin/feedback/export', { responseType: 'blob' })
+}

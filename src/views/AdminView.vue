@@ -632,6 +632,17 @@
               </button>
             </div>
             <span class="result-count">{{ filteredFeedback.length }} 条反馈</span>
+            <div class="toolbar-actions">
+              <button
+                class="command-button secondary"
+                type="button"
+                :disabled="actionLoading"
+                title="导出全部反馈为 CSV 文件"
+                @click="exportFeedback"
+              >
+                <NsIcon name="download" /> 导出 CSV
+              </button>
+            </div>
           </div>
 
           <div class="table-shell">
@@ -1081,6 +1092,7 @@ import {
   decideAdminBetaApplication,
   deleteAdminBetaWhitelist,
   exportAdminBetaWhitelist,
+  exportAdminFeedback,
   getAdminFeedback,
   getAdminBetaVerifyLogs,
   getAdminBetaApplications,
@@ -1402,6 +1414,25 @@ async function submitFeedbackProcess() {
     await loadFeedback()
   } catch (e) {
     error.value = e.response?.data?.message || e.userMessage || '反馈处理失败'
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function exportFeedback() {
+  actionLoading.value = true
+  error.value = ''
+  try {
+    const blob = await exportAdminFeedback()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `northstar-feedback-${new Date().toISOString().slice(0, 10)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    showNotice('反馈 CSV 已导出')
+  } catch (e) {
+    error.value = e.response?.data?.message || e.userMessage || '反馈导出失败'
   } finally {
     actionLoading.value = false
   }
