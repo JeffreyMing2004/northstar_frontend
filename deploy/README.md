@@ -50,14 +50,47 @@ VITE_API_BASE_URL=https://api.mingpixel.net/api
 | 项 | 值 / 说明 |
 |---|---|
 | 监听端口 | `SERVER_PORT`，默认 `8080`，与 `upstream northstar_backend` 一致 |
-| 反代识别真实 IP | 新增 `server.forward-headers-strategy=framework`，让 Spring 采信 `X-Forwarded-*` |
+| 运行 profile | **必须** `SPRING_PROFILES_ACTIVE=prod`。加固后后端会拒绝以 local profile 连远程库启动 |
+| 反代识别真实 IP | `server.forward-headers-strategy=framework`（后端默认值），让 Spring 采信 `X-Forwarded-*` |
 | CORS | `CORS_ORIGINS`，默认已含 `https://northstar.mingpixel.net` |
 | 校验限流 | `VERIFY_RATE_LIMIT_PER_MINUTE`，默认 60/分钟/IP |
 
+### ⚠️ 来源 IP 链路：Cloudflare realip 是硬前提
+
+按 IP 限流要准，前提是后端能拿到**真实玩家 IP**。这条链路有三段，缺一段就会
+把所有用户算成同一个人：
+
+```
+玩家 → Cloudflare → OpenResty → Spring Boot
+        ↑ CF-Connecting-IP      ↑ $remote_addr      ↑ remoteAddr
+          （CF 写入的客户真实 IP）  （realip 还原）      （framework 策略还原）
+```
+
+后端 `ClientIp.of()` 的取值顺序（`northstar_backend/.../support/ClientIp.java`）：
+
+1. `request.getRemoteAddr()` —— 只要不是回环地址就采用它；
+   `forward-headers-strategy=framework` 会把反代传来的 `X-Forwarded-For` 还原到这里。
+2. 只有当 1 还是 `127.0.0.1`（本地直连、或反代没传头）时，才退回读 `X-Forwarded-For` / `X-Real-IP`。
+
+**所以必须在 OpenResty 里配 Cloudflare realip**，否则链路第一段的 `$remote_addr`
+是 CF 边缘节点 IP，全站玩家会共用同一份额度（登录 30 次/5 分钟、发码 5 次/10 分钟），
+正常用户也会撞上 429：
+
+```nginx
+# 只信任 Cloudflare 的出口段；千万别写 0.0.0.0/0，否则任何人都能伪造 CF-Connecting-IP
+# 段列表见 https://www.cloudflare.com/ips/ （IPv4 / IPv6 两张，官方会更新，需定期同步）
+set_real_ip_from 173.245.48.0/20;
+set_real_ip_from 103.21.244.0/22;
+# ... 按官方最新列表补齐 ...
+real_ip_header CF-Connecting-IP;
+real_ip_recursive on;
+```
+
+配好后 `$remote_addr` 就是玩家真实 IP，`X-Real-IP` 与 `X-Forwarded-For` 也随之正确。
+
 ### ⚠️ X-Forwarded-For 必须「覆盖」而非「追加」
 
-后端 `BetaController.resolveClientIp()` 取 `X-Forwarded-For` 的**第一段**当来源 IP，用于校验接口限流。
-所以 OpenResty 里写的是：
+反代侧仍要显式覆盖，别用 `$proxy_add_x_forwarded_for` 追加：
 
 ```nginx
 proxy_set_header X-Forwarded-For $remote_addr;        # ✅ 覆盖
@@ -65,7 +98,37 @@ proxy_set_header X-Forwarded-For $remote_addr;        # ✅ 覆盖
 ```
 
 用 `$proxy_add_x_forwarded_for` 时，客户端只要自带一个 `X-Forwarded-For: 1.2.3.4`，
-该值就会排到最前被后端采信 —— 换着假 IP 就能绕过限流。
+该值会被排到最前并被 Spring 的 framework 策略还原进 `remoteAddr`，
+于是**第 1 条取值路径就被污染**，换着假 IP 就能绕过限流。
+
+> 历史说明：加固前后端是取 `X-Forwarded-For` 的**首段**，现在改为以
+> `remoteAddr` 为准、并且要求它由反代覆盖写入。这条「覆盖」要求在修复后依然成立。
+
+### 限流阈值（后端默认值，可用环境变量覆盖）
+
+| 接口 | 阈值 | 环境变量 |
+|---|---|---|
+| 登录 | 同 IP 30 次 / 5 分钟；同账号连续失败 10 次 / 15 分钟 | `AUTH_LOGIN_IP_LIMIT`、`AUTH_LOGIN_ACCOUNT_FAIL_LIMIT` |
+| 发送验证码 | 同 IP 5 次 / 10 分钟；同邮箱 60 秒冷却 | `AUTH_SEND_CODE_IP_LIMIT` |
+| 找回身份 / 重置密码 | 同 IP 10 次 / 10 分钟 | `AUTH_FORGOT_LOOKUP_IP_LIMIT`、`AUTH_RESET_IP_LIMIT` |
+| 内测资格查询 | 同 IP 60 次 / 分钟 | `VERIFY_RATE_LIMIT_PER_MINUTE` |
+
+触发限流统一返回 `429` + `Retry-After`（秒）。前端已按这个响应头提示
+「操作过于频繁，请 N 分钟后重试」，**反代不要吞掉 `Retry-After` 响应头**。
+
+### 静态站的响应头
+
+后端下发的安全头（HSTS / CSP / nosniff / X-Frame-Options 等）只覆盖 `/api/**`，
+**静态页面由 OpenResty 直接返回，不受其保护**。若要给页面也加上，可在站点配置里补：
+
+```nginx
+add_header X-Content-Type-Options nosniff always;
+add_header X-Frame-Options DENY always;
+add_header Referrer-Policy strict-origin-when-cross-origin always;
+# CSP 要按实际资源改：本站用了内联 style 属性与 data: 图片，直接照搬后端的
+# default-src 'none' 会把页面打白，务必先 curl 一把确认再加。
+# add_header Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'" always;
+```
 
 ## 4. 上线验收清单
 
@@ -110,6 +173,29 @@ curl -sI https://northstar.mingpixel.net/ | grep -i cache-control
 curl -s -H "X-Forwarded-For: 1.2.3.4" \
      "https://northstar.mingpixel.net/api/beta/verify?qq=123456789&name=Steve" > /dev/null
 #   然后到后台「校验日志」查这条记录，IP 应是你的真实出口 IP，而不是 1.2.3.4
+
+# ⑦ 验证 Cloudflare realip 真的生效（限流按人算，而不是按 CF 边缘节点算）
+#   从两个不同网络（例如手机热点 + 家宽）各打一次，到后台「校验日志」看 IP：
+#   期望两条记录是**两个不同的公网 IP**。若都相同且形似 172.7x/104.2x（CF 段），
+#   说明 OpenResty 的 real_ip_header 没配或没重载。
+curl -s "https://northstar.mingpixel.net/api/beta/verify?qq=123456789&name=IpProbe" > /dev/null
+
+# ⑧ 验证 429 与 Retry-After
+for i in $(seq 1 8); do
+  curl -s -o /dev/null -w "%{http_code} " -X POST \
+       -H 'Content-Type: application/json' \
+       -d '{"email":"probe@example.com","purpose":"register"}' \
+       https://northstar.mingpixel.net/api/auth/send-code
+done; echo
+#   期望：前几次 200/400，超过 IP 阈值后变 429
+curl -sI -X POST -H 'Content-Type: application/json' -d '{}' \
+     https://northstar.mingpixel.net/api/auth/send-code | grep -i retry-after
+#   期望：有 Retry-After 头（⚠️ 若被 CF/反代剥掉，前端只能提示「请稍后重试」）
+
+# ⑨ 确认后端安全头已生效（这些头只由后端下发，覆盖 /api/**）
+curl -sI https://northstar.mingpixel.net/api/beta/plans | grep -iE 'strict-transport|x-content-type|x-frame|referrer-policy|content-security'
+#   期望：至少看到 strict-transport-security（HSTS）与 x-frame-options。
+#   若一个都没有 → 后端是旧构建，或 FORCE_HTTPS/X-Forwarded-Proto 没传导致 HSTS 被跳过。
 ```
 
 ## 5. 客户端 Mod 侧配置
@@ -137,4 +223,8 @@ verifyUrl = "https://northstar.mingpixel.net/api/beta/verify"
 | 发版后仍是旧页面 | `index.html` 被缓存；检查 `location = /index.html` 的 `Cache-Control` |
 | 白名单 CSV 导入报 413 | `client_max_body_size` 太小 |
 | 限流日志里的 IP 全是 127.0.0.1 | 反代没传 `X-Forwarded-For`，或后端 `forward-headers-strategy` 未生效 |
+| 限流日志里的 IP 全是同一个公网地址、用户频繁被 429 | Cloudflare realip 没配：`$remote_addr` 拿到的是 CF 边缘节点 IP。按 §3 补 `set_real_ip_from` + `real_ip_header CF-Connecting-IP` 后重载 |
+| 登录/发码/找回接口大面积 429 | 同上一行；加固后这几类接口都加了按 IP 限流，来源 IP 一旦被折叠成同一个就会全站误伤 |
+| 接口提示「登录状态已失效」但用户刚登录 | 该账号的密码被重置或被管理员改过，存量令牌按设计已吊销，重新登录即可 |
+| 注册/重置页提示密码不合规 | 密码规则已加严为 8-72 位且必须同时包含字母和数字，前端与后端同规则，按提示改即可 |
 | CORS 报错 | 说明 `VITE_API_BASE_URL` 被改成了绝对地址但后端白名单没加该 Origin |

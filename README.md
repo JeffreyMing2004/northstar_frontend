@@ -28,7 +28,7 @@ Vue 3 + Vue Router 4（hash 路由）+ Vite 5 + Axios。
 | `/admin` | 管理后台：用户 / 白名单 / 内测计划 | 需管理员 |
 | `/docs` | 文档 | 公开 |
 | `/legal/{terms,privacy,cookies}` | 用户协议 / 隐私政策 / Cookie 说明 | 公开 |
-| `/auth/{login,register}` | 登录 / 注册 | 公开（已登录时自动回首页） |
+| `/auth/{login,register,forgot}` | 登录 / 注册 / 找回密码 | 公开（已登录时自动回首页） |
 
 ## 快速开始
 
@@ -61,6 +61,7 @@ src/
 ├── components/   AppHeader / AppFooter / NsIcon / PlayerAvatar
 ├── router/       路由表与登录守卫（meta.requiresAuth / meta.requiresAdmin）
 ├── stores/auth.js
+├── utils/        password.js（与后端 PasswordPolicy 对齐的密码规则）
 └── views/        各页面
 deploy/           生产部署：OpenResty 站点配置与部署说明
 ```
@@ -70,7 +71,10 @@ deploy/           生产部署：OpenResty 站点配置与部署说明
 - 前端一律走相对路径 `/api`，**不产生跨域请求**：开发由 vite dev proxy 转发，线上由 OpenResty 把 `/api` 反代到后端。因此线上即使后端 CORS 白名单配错也不影响前端。
 - 响应统一为 `{ code, message, data }`。`src/api/index.js` 的响应拦截器已经把外层剥掉，业务代码直接读 `res.data`。
 - 401 会自动清除登录态并跳转登录页；403 会补一句「当前账号没有访问该功能的权限」。
+- **429（限流）** 由拦截器统一处理：读响应头 `Retry-After` 拼出「操作过于频繁，请 N 分钟后重试」。页面里请用 `messageOf(e, fallback)` 取文案，不要直接读 `e.response.data.message`。
 - 业务错误优先展示后端 `message` 原文（例如「QQ 号已绑定，绑定后不可更改」），所以后端不要吞异常换成 500。
+- **密码规则**：8-72 位、必须同时包含字母和数字、不含空格。前端校验在 `src/utils/password.js`，与后端 `PasswordPolicy` 一一对应，改一边必须改另一边。登录页刻意**不校验**长度——存量短口令账号要能登录。
+- 重置密码后后端会按「用户 × 签发时间」吊销存量令牌，其他设备会被踢回登录页，属预期行为。
 
 ## 图标：自托管
 
@@ -82,9 +86,10 @@ deploy/           生产部署：OpenResty 站点配置与部署说明
 
 ## 部署
 
-见 [`deploy/README.md`](deploy/README.md)：OpenResty 配置、环境变量、验收清单与排错对照表。
+见 [`deploy/README.md`](deploy/README.md)：OpenResty 配置、环境变量、验收清单与排错对照表。其中两处最容易踩：
 
-其中一处最容易踩：反代 `X-Forwarded-For` 必须用 `$remote_addr` **覆盖**而不是 `$proxy_add_x_forwarded_for` 追加，否则客户端可伪造来源 IP 绕过校验接口的限流。
+1. 反代 `X-Forwarded-For` 必须用 `$remote_addr` **覆盖**而不是 `$proxy_add_x_forwarded_for` 追加，否则客户端可伪造来源 IP 绕过限流。
+2. 本站前面挂了 Cloudflare，OpenResty 里还**必须配 `real_ip_header CF-Connecting-IP` 与 `set_real_ip_from`**（只填 CF 官方段）。漏配时 `$remote_addr` 是 CF 边缘节点 IP，后端按 IP 的限流会退化成「全站共用一个配额」，正常玩家大面积撞 429。
 
 ## 许可证
 

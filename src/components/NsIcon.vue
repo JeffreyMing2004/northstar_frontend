@@ -44,6 +44,7 @@ const iconStyle = computed(() => {
   justify-content: center;
   vertical-align: middle;
   flex-shrink: 0;
+  box-sizing: content-box;
   fill: currentColor;
 }
 </style>

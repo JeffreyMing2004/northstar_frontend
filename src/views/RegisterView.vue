@@ -55,6 +55,7 @@
                 {{ codeCountdown > 0 ? codeCountdown + 's' : codeSending ? '发送中...' : '获取验证码' }}
               </button>
             </div>
+            <span class="field-hint">验证码 2 分钟内有效，超过 5 次输错需重新获取</span>
           </div>
 
           <div class="form-group">
@@ -75,7 +76,7 @@
             </div>
             <span v-if="form.mcId && !validMcId" class="field-hint error"><NsIcon name="close-circle" /> 3-16 位，仅限字母、数字和下划线</span>
             <span v-else-if="form.mcId" class="field-hint warning"><NsIcon name="warning" /> 注册后不可更改，请确认与实际登录的 ID 完全一致</span>
-            <span v-else class="field-hint">绑定离线服 MC ID 可解锁专属战绩追踪；与 QQ 同为内测资格凭据，注册后不可更改</span>
+            <span v-else class="field-hint warning"><NsIcon name="warning" /> 建议填写：内测进服校验需要 QQ + MC ID 同时匹配，只填 QQ 可能无法通过</span>
           </div>
 
           <button type="submit" class="ns-btn ns-btn-filled auth-submit" :disabled="!canNext1">
@@ -88,7 +89,7 @@
             <label class="form-label">密码</label>
             <div class="input-wrapper">
               <NsIcon name="lock" class="input-icon" />
-              <input v-model="form.password" :type="showPwd ? 'text' : 'password'" class="ns-input auth-input" placeholder="至少8位，含字母和数字" />
+              <input v-model="form.password" :type="showPwd ? 'text' : 'password'" class="ns-input auth-input" :placeholder="PASSWORD_HINT" />
               <button type="button" class="pwd-toggle" @click="showPwd = !showPwd">
                 <NsIcon :name="showPwd ? 'eye' : 'eye-close'" />
               </button>
@@ -102,6 +103,8 @@
               </div>
               <span :class="['strength-text', strengthColor]">{{ strengthLabel }}</span>
             </div>
+            <span v-if="passwordError" class="field-hint error"><NsIcon name="close-circle" /> {{ passwordError }}</span>
+            <span v-else class="field-hint">{{ PASSWORD_HINT }}</span>
           </div>
 
           <div class="form-group">
@@ -163,7 +166,7 @@
           <h2 class="success-title">注册成功！</h2>
           <p class="success-msg">欢迎加入 NorthStar，{{ form.username }}</p>
           <p v-if="registeredBeta" class="success-beta">已自动检测并关联内测资格</p>
-          <p class="success-hint">验证邮件已发送至 {{ form.email }}，请查收</p>
+          <p class="success-hint">账号已创建，现在可以进入平台了</p>
           <router-link :to="postAuthTarget" class="ns-btn ns-btn-filled auth-submit" style="margin-top:24px">
             <NsIcon name="login" /> {{ redirectTo ? '继续申请内测' : '进入平台' }}
           </router-link>
@@ -182,7 +185,9 @@
 import { ref, reactive, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { registerApi, sendCodeApi } from '../api/auth'
+import { messageOf } from '../api'
 import { useAuth } from '../stores/auth'
+import { PASSWORD_HINT, passwordIssue } from '../utils/password'
 
 const route = useRoute()
 const { login } = useAuth()
@@ -219,19 +224,22 @@ const pwdStrength = computed(() => {
 })
 const strengthColor = computed(() => { if (pwdStrength.value <= 1) return 'weak'; if (pwdStrength.value === 2) return 'fair'; if (pwdStrength.value === 3) return 'good'; return 'strong' })
 const strengthLabel = computed(() => { if (pwdStrength.value <= 1) return '弱'; if (pwdStrength.value === 2) return '一般'; if (pwdStrength.value === 3) return '良好'; return '强' })
-const canNext2 = computed(() => form.password.length >= 8 && form.password === form.confirmPwd)
+// 强度条只作参考，能否提交一律以后端同款策略为准（8-72 位且含字母和数字）。
+// 空输入不报错，只在用户开始输入后才提示不合规的具体原因。
+const passwordError = computed(() => (form.password ? passwordIssue(form.password) : ''))
+const canNext2 = computed(() => !passwordIssue(form.password) && form.password === form.confirmPwd)
 
 async function sendCode() {
   if (codeSending.value || codeCountdown.value > 0) return
   codeSending.value = true
   try {
-    await sendCodeApi(form.email)
+    await sendCodeApi(form.email, 'register')
     codeCountdown.value = 60
     countdownTimer = setInterval(() => {
       codeCountdown.value--
       if (codeCountdown.value <= 0) clearInterval(countdownTimer)
     }, 1000)
-  } catch (e) { error.value = e.response?.data?.message || '验证码发送失败' }
+  } catch (e) { error.value = messageOf(e, '验证码发送失败，请稍后重试') }
   finally { codeSending.value = false }
 }
 
@@ -253,7 +261,7 @@ async function handleRegister() {
     authLogin(res.data.user, res.data.token)
     registeredBeta.value = res.data.user?.betaStatus === 'approved'
     step.value = 4
-  } catch (e) { error.value = e.response?.data?.message || '注册失败，请稍后重试' }
+  } catch (e) { error.value = messageOf(e, '注册失败，请稍后重试') }
   finally { loading.value = false }
 }
 </script>
@@ -283,7 +291,7 @@ async function handleRegister() {
 .form-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.5px; }
 .input-wrapper { display: flex; align-items: center; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); transition: all 0.3s; }
 .input-wrapper:focus-within { border-color: var(--accent-primary); box-shadow: 0 0 20px rgba(255,140,0,0.1); }
-.input-icon { padding: 0 14px; font-size: 16px; color: var(--text-muted); }
+.input-icon { margin: 0 14px; font-size: 16px; color: var(--text-muted); }
 .auth-input { border: none !important; background: transparent !important; box-shadow: none !important; flex: 1; padding-left: 0; }
 .pwd-toggle { background: none; border: none; padding: 0 14px; cursor: pointer; transition: opacity 0.3s; opacity: 0.5; display: flex; align-items: center; }
 .pwd-toggle:hover { opacity: 1; }

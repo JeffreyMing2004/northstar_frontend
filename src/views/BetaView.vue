@@ -81,7 +81,21 @@
         <p class="notfound-msg">请检查输入的账号ID或邮箱是否正确，或先注册 NorthStar 平台账号</p>
         <div class="result-actions">
           <button class="ns-btn" @click="result = null"><NsIcon name="refresh" /> 重新查询</button>
-          <router-link to="/auth/register" class="ns-btn ns-btn-filled"><NsIcon name="user-plus" /> 注册账号</router-link>
+          <router-link :to="{ path: '/auth/register', query: { redirect: '/beta' } }" class="ns-btn ns-btn-filled"><NsIcon name="user-plus" /> 注册账号</router-link>
+        </div>
+      </div>
+    </div>
+
+    <!-- 限流与「查无此人」要分开说：等一会儿再查就有结果，误导成账号不存在会让玩家白折腾 -->
+    <div v-if="result === 'rate-limited'" class="result-section animate-in">
+      <div class="result-card ns-card result-notfound">
+        <div class="result-status">
+          <span class="status-icon"><NsIcon name="warning" /></span>
+          <h2 class="status-title">查询过于频繁</h2>
+        </div>
+        <p class="notfound-msg">{{ rateLimitMessage }}</p>
+        <div class="result-actions">
+          <button class="ns-btn ns-btn-filled" @click="doCheckBeta"><NsIcon name="refresh" /> 再试一次</button>
         </div>
       </div>
     </div>
@@ -253,6 +267,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { checkBeta, applyBeta, getBetaPlans, getMyBetaApplication } from '../api/beta'
+import { messageOf } from '../api'
 import { useAuth } from '../stores/auth'
 import ConfirmDialog from '../components/ConfirmDialog.vue'
 
@@ -261,6 +276,8 @@ const { isLoggedIn, currentUser } = useAuth()
 
 const queryId = ref('')
 const result = ref(null)
+/** 被限流时的提示文案；由响应头 Retry-After 推导，默认一句通用话术。 */
+const rateLimitMessage = ref('查询过于频繁，请稍后再试')
 const loading = ref(false)
 const betaInfo = ref({})
 const applyEmail = ref('')
@@ -369,7 +386,14 @@ async function doCheckBeta() {
       result.value = 'denied'
     }
   } catch (e) {
-    result.value = 'notfound'
+    // 限流（429）与「查无此人」必须分开提示：前者稍后重试就有结果，
+    // 后者再怎么试也没用。NS-09 之后 /api/beta/check 按来源 IP 限流。
+    if (e.response?.status === 429) {
+      rateLimitMessage.value = messageOf(e, '查询过于频繁，请稍后再试')
+      result.value = 'rate-limited'
+    } else {
+      result.value = 'notfound'
+    }
   } finally {
     loading.value = false
   }

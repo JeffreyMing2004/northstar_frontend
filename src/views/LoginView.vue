@@ -36,7 +36,7 @@
               <input v-model="form.remember" type="checkbox" class="checkbox-input" />
               <span class="checkbox-text">记住我</span>
             </label>
-            <a href="#" class="forgot-link">忘记密码？</a>
+            <router-link to="/auth/forgot" class="forgot-link">忘记密码？</router-link>
           </div>
 
           <div v-if="error" class="form-error">
@@ -61,6 +61,7 @@ import { ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../stores/auth'
 import { loginApi } from '../api/auth'
+import { messageOf } from '../api'
 
 const router = useRouter()
 const route = useRoute()
@@ -74,13 +75,16 @@ async function handleLogin() {
   error.value = ''
   if (!form.username.trim()) { error.value = '请输入用户名或邮箱'; return }
   if (!form.password) { error.value = '请输入密码'; return }
-  if (form.password.length < 6) { error.value = '密码长度不能少于6位'; return }
+  // 这里刻意不校验密码长度：存量账号可能是加严之前注册的短口令，
+  // 前端拦下来会让他们连登录都提交不了，只能白等客服。长度规则只在注册/重置时把关。
   loading.value = true
   try {
     const res = await loginApi({ username: form.username, password: form.password })
     login(res.data.user, res.data.token)
     router.push(typeof route.query.redirect === 'string' ? route.query.redirect : '/')
-  } catch (e) { error.value = e.response?.data?.message || '登录失败，请检查账号密码' }
+  } catch (e) {
+    error.value = messageOf(e, '登录失败，请检查账号密码')
+  }
   finally { loading.value = false }
 }
 </script>
@@ -101,7 +105,7 @@ async function handleLogin() {
 .form-label { font-size: 13px; font-weight: 600; color: var(--text-secondary); letter-spacing: 0.5px; }
 .input-wrapper { display: flex; align-items: center; background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); transition: all 0.3s; }
 .input-wrapper:focus-within { border-color: var(--accent-primary); box-shadow: 0 0 20px rgba(255,140,0,0.1); }
-.input-icon { padding: 0 14px; font-size: 16px; color: var(--text-muted); }
+.input-icon { margin: 0 14px; font-size: 16px; color: var(--text-muted); }
 .auth-input { border: none !important; background: transparent !important; box-shadow: none !important; flex: 1; padding-left: 0; }
 .pwd-toggle { background: none; border: none; padding: 0 14px; cursor: pointer; transition: opacity 0.3s; opacity: 0.5; display: flex; align-items: center; }
 .pwd-toggle:hover { opacity: 1; }

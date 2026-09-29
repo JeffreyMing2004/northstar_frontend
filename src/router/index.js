@@ -18,6 +18,7 @@ const routes = [
   { path: '/settings', name: 'Settings', component: () => import('../views/SettingsView.vue'), meta: { requiresAuth: true } },
   { path: '/auth/login', name: 'Login', component: () => import('../views/LoginView.vue') },
   { path: '/auth/register', name: 'Register', component: () => import('../views/RegisterView.vue') },
+  { path: '/auth/forgot', name: 'ForgotPassword', component: () => import('../views/ForgotPasswordView.vue') },
   { path: '/:pathMatch(.*)*', redirect: '/' }
 ]
 
@@ -29,7 +30,7 @@ const router = createRouter({
 router.beforeEach((to, from, next) => {
   const { isLoggedIn, currentUser } = useAuth()
 
-  if ((to.path === '/auth/login' || to.path === '/auth/register') && isLoggedIn.value) {
+  if ((to.path === '/auth/login' || to.path === '/auth/register' || to.path === '/auth/forgot') && isLoggedIn.value) {
     next('/')
   } else if (to.meta.requiresAuth && !isLoggedIn.value) {
     next({ path: '/auth/login', query: { redirect: to.fullPath } })
